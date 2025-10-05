@@ -28,6 +28,37 @@ for symbol in symbols:
     with open(filename) as f:
         raw_data = json.load(f)
 
-    # 4. transform JSON into pandas dataframe
+    # 4. transform JSON
     time_series = raw_data['Time Series (Daily)']
     df = pd.DataFrame.from_dict(time_series, orient='index')
+
+    # rename columns
+    df = df.rename(columns={
+        "1. open": "open",
+        "2. high": "high",
+        "3. low": "low",
+        "4. close": "close",
+        "5. volume": "volume"
+    })
+
+    # convert data types
+    df = df.astype({
+        "open": float,
+        "high": float,
+        "low": float,
+        "close": float,
+        "volume": int
+    })
+
+    # reset index to make 'date' a column
+    df = df.reset_index().rename(columns={"index": "date"})
+
+    # sort by date ascending
+    df = df.sort_values("date")
+
+    # add daily change percentage
+    df['daily_change_percentage'] = ((df['close'] - df['open']) / df['open']) * 100
+
+    df.to_csv(f"{data_lake_folder}/{symbol}_{today_str}.csv", index=False)
+    print(f"Processed {symbol}, first 5 rows:")
+    print(df.head(), "\n")
