@@ -4,6 +4,8 @@ import pandas as pd
 import os
 import time
 from datetime import date
+from dotenv import load_dotenv
+from sqlalchemy import create_engine, text
 
 
 # parameters
@@ -70,3 +72,36 @@ for symbol in symbols:
     print(df.head(), "\n")
 
     time.sleep(15)
+
+    # loads variables from .env
+    load_dotenv()
+
+    # read from environment
+    username = os.getenv("DB_USER")
+    password = os.getenv("DB_PASS")
+    host = os.getenv("DB_HOST")
+    port = int(os.getenv("DB_PORT", 3306))
+    database = os.getenv("DB_NAME")
+
+    engine = create_engine(f"mysql+mysqlconnector://{username}:{password}@{host}:{port}/{database}")
+
+    query = """
+        CREATE TABLE IF NOT EXISTS stock_daily_data (
+        id INT PRIMARY KEY AUTO_INCREMENT,
+        symbol VARCHAR(10),
+        date DATE,
+        open_price DECIMAL(15,4),
+        high_price DECIMAL(15,4),
+        low_price DECIMAL(15,4),
+        close_price DECIMAL(15,4),
+        volume INT,
+        daily_change_percentage DECIMAL(10,4),
+        extraction_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+
+    with engine.connect() as conn:
+        conn.execute(text(query))
+        conn.commit()  # make sure changes are saved
+
+    print("✅ Table ensured (created if not existed).")
