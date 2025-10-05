@@ -2,14 +2,16 @@ import requests
 import json
 import pandas as pd
 import os
+import time
 from datetime import date
+
 
 # parameters
 API_KEY = "7POU20Z8FG2KJPU1"
 symbols = ["AAPL", "GOOG", "MSFT"]  # companies to fetch
 data_lake_folder = "raw_data"
 
-# making sure folder exists
+# make sure folder exists
 os.makedirs(data_lake_folder, exist_ok=True)
 
 for symbol in symbols:
@@ -29,6 +31,11 @@ for symbol in symbols:
         raw_data = json.load(f)
 
     # 4. transform JSON
+    if 'Time Series (Daily)' not in raw_data:
+        print(f"Error fetching {symbol}:")
+        print(raw_data)
+        continue
+
     time_series = raw_data['Time Series (Daily)']
     df = pd.DataFrame.from_dict(time_series, orient='index')
 
@@ -59,6 +66,7 @@ for symbol in symbols:
     # add daily change percentage
     df['daily_change_percentage'] = ((df['close'] - df['open']) / df['open']) * 100
 
-    df.to_csv(f"{data_lake_folder}/{symbol}_{today_str}.csv", index=False)
     print(f"Processed {symbol}, first 5 rows:")
     print(df.head(), "\n")
+
+    time.sleep(15)
