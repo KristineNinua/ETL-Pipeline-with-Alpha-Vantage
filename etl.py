@@ -24,10 +24,10 @@ for symbol in symbols:
     with open(filename, "w") as f:
         json.dump(data, f, indent=4)
 
-    # 3. Read raw JSON back
+    # 3. read raw JSON back
     with open(filename) as f:
         raw_data = json.load(f)
 
-    # 4. Transform JSON into Pandas DataFrame
+    # 4. transform JSON into pandas dataframe
     time_series = raw_data['Time Series (Daily)']
     df = pd.DataFrame.from_dict(time_series, orient='index')
