@@ -5,7 +5,7 @@ import os
 import time
 from datetime import date
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, inspect
 
 
 # parameters
@@ -17,6 +17,45 @@ FETCH_FROM_API = True  # change to false to skip api calls
 
 # make sure folder exists
 os.makedirs(data_lake_folder, exist_ok=True)
+
+# loads variables from .env
+load_dotenv()
+
+# read from environment
+username = os.getenv("DB_USER")
+password = os.getenv("DB_PASS")
+host = os.getenv("DB_HOST")
+port = int(os.getenv("DB_PORT", 3306))
+database = os.getenv("DB_NAME")
+
+# Safety check for DB connection
+if not all([username, password, host, database]):
+    raise ValueError("❌ Missing database credentials. Check your .env file.")
+
+engine = create_engine(f"mysql+mysqlconnector://{username}:{password}@{host}:{port}/{database}")
+
+create_table_query = """
+CREATE TABLE IF NOT EXISTS stock_daily_data (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    symbol VARCHAR(10),
+    date DATE,
+    open_price DECIMAL(15,4),
+    high_price DECIMAL(15,4),
+    low_price DECIMAL(15,4),
+    close_price DECIMAL(15,4),
+    volume INT,
+    daily_change_percentage DECIMAL(10,4),
+    extraction_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(symbol, date)  -- prevent duplicates
+)
+"""
+
+with engine.connect() as conn:
+    conn.execute(text(create_table_query))
+    conn.commit()  # make sure changes are saved
+
+print("✅ Table ensured (created if not existed).")
+
 
 # save raw JSON into data lake
 today_str = date.today().isoformat()
@@ -38,9 +77,9 @@ for symbol in symbols:
         data = response.json()
 
         # check for api error
-        if 'Time Series (Daily)' not in raw_data:
+        if 'Time Series (Daily)' not in data:
             print(f"Error fetching {symbol}:")
-            print(raw_data)
+            print(data)
             continue
 
         # save raw json into data lake
@@ -95,47 +134,53 @@ for symbol in symbols:
 
     # add daily change percentage
     df['daily_change_percentage'] = ((df['close'] - df['open']) / df['open']) * 100
+    df['symbol'] = symbol
 
     print(f"Processed {symbol}, first 3 rows:")
     print(df.head(3), "\n")
 
 
 
-# loads variables from .env
-load_dotenv()
-
-# read from environment
-username = os.getenv("DB_USER")
-password = os.getenv("DB_PASS")
-host = os.getenv("DB_HOST")
-port = int(os.getenv("DB_PORT", 3306))
-database = os.getenv("DB_NAME")
-
-# Safety check for DB connection
-if not all([username, password, host, database]):
-    print("❌ Missing database credentials. Check your .env file.")
-    print(f"DB_USER={username}, DB_PASS={bool(password)}, DB_HOST={host}, DB_NAME={database}")
-else:
-    engine = create_engine(f"mysql+mysqlconnector://{username}:{password}@{host}:{port}/{database}")
-
-
-    query = """
-        CREATE TABLE IF NOT EXISTS stock_daily_data (
-        id INT PRIMARY KEY AUTO_INCREMENT,
-        symbol VARCHAR(10),
-        date DATE,
-        open_price DECIMAL(15,4),
-        high_price DECIMAL(15,4),
-        low_price DECIMAL(15,4),
-        close_price DECIMAL(15,4),
-        volume INT,
-        daily_change_percentage DECIMAL(10,4),
-        extraction_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        """
-
+# insert new (non-duplicate) records
     with engine.connect() as conn:
-        conn.execute(text(query))
-        conn.commit()  # make sure changes are saved
+        for _, row in df.iterrows():
+            insert_query = text("""
+                INSERT IGNORE INTO stock_daily_data
+                (symbol, date, open_price, high_price, low_price, close_price, volume, daily_change_percentage)
+                VALUES (:symbol, :date, :open, :high, :low, :close, :volume, :daily_change_percentage)
+            """)
+            conn.execute(insert_query, {
+                "symbol": row["symbol"],
+                "date": row["date"],
+                "open": row["open"],
+                "high": row["high"],
+                "low": row["low"],
+                "close": row["close"],
+                "volume": row["volume"],
+                "daily_change_percentage": row["daily_change_percentage"]
+            })
+        conn.commit()
+        print(f"📤 Inserted (ignoring duplicates) data for {symbol}.\n")
 
-    print("✅ Table ensured (created if not existed).")
+# inspect database
+print("\n🔍 Checking database structure and sample data...")
+
+inspector = inspect(engine)
+tables = inspector.get_table_names()
+
+print("\n📋 Tables in database:")
+print(tables)
+
+if "stock_daily_data" in tables:
+    print("✅ 'stock_daily_data' table exists!")
+    columns = inspector.get_columns("stock_daily_data")
+    print("\n📑 Columns:")
+    for col in columns:
+        print(f"{col['name']} ({col['type']})")
+
+    df_preview = pd.read_sql("SELECT * FROM stock_daily_data ORDER BY id DESC LIMIT 5", engine)
+    print("\n🧾 Last 5 inserted rows:")
+    print(df_preview)
+else:
+    print("❌ 'stock_daily_data' table not found.")
+
