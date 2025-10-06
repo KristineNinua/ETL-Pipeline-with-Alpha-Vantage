@@ -3,10 +3,10 @@ import json
 import pandas as pd
 import os
 import time
-from datetime import date
+import schedule
+from datetime import datetime, date
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, text, inspect
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import create_engine, text, inspect, SQLAlchemyError
 
 
 def extract_and_transform(api_key, symbols, data_lake_folder, fetch_from_api=True):
@@ -125,10 +125,10 @@ def load_to_db(df, engine, symbols):
         with engine.connect() as conn:
             for _, row in df.iterrows():
                 insert_query = text("""
-                       INSERT IGNORE INTO stock_daily_data
-                       (symbol, date, open_price, high_price, low_price, close_price, volume, daily_change_percentage)
-                       VALUES (:symbol, :date, :open, :high, :low, :close, :volume, :daily_change_percentage)
-                   """)
+                   INSERT IGNORE INTO stock_daily_data
+                   (symbol, date, open_price, high_price, low_price, close_price, volume, daily_change_percentage)
+                   VALUES (:symbol, :date, :open, :high, :low, :close, :volume, :daily_change_percentage)
+               """)
                 conn.execute(insert_query, {
                     "symbol": row["symbol"],
                     "date": row["date"],
@@ -193,11 +193,11 @@ def main():
     try:
         print("\n🚀 Starting ETL Pipeline...\n")
 
-        API_KEY = "LP89JFY0HI9OE8Z8"
+        api_key = "LP89JFY0HI9OE8Z8"
         symbols = ["AAPL", "GOOG", "MSFT"]
         data_lake_folder = "raw_data"
 
-        final_df = extract_and_transform(API_KEY, symbols, data_lake_folder, fetch_from_api=True)
+        final_df = extract_and_transform(api_key, symbols, data_lake_folder, fetch_from_api=True)
         load_to_db(final_df, engine, symbols)
         inspect_database(engine)
 
@@ -212,3 +212,23 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+def job():
+    print(f"\n🕘 Running scheduled ETL job at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}...")
+    main()
+    with open("etl_log.txt", "a") as log:
+        log.write(f"ETL run at {datetime.now()}\n")
+
+
+# Schedule it to run every day at 09:00 AM
+schedule.every().day.at("09:00").do(job)
+
+print("📅 Scheduler started. Waiting for next run...")
+
+try:
+    while True:
+        schedule.run_pending()
+        time.sleep(60)  # check every minute
+except KeyboardInterrupt:
+    print("\n🛑 Scheduler stopped manually.")
